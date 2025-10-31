@@ -1,0 +1,8 @@
+REG_TCC0_CCB0 – digital output D2 (Zero Pro/M0 Pro/M0 – digital pin D4)
+REG_TCC0_CCB1 – digital output D5
+REG_TCC0_CCB2 – digital output D6
+REG_TCC0_CCB3 – digital output D7
+REG_TCC1_CCB0 – digital output D4 (Zero Pro/M0 Pro/M0 – digital pin D2)
+REG_TCC1_CCB1 – digital output D3
+REG_TCC2_CCB0 – digital output D11
+REG_TCC2_CCB1 – digital output D13
