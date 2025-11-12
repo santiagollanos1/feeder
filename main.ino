@@ -11,5 +11,9 @@ void setup() {
 }
 
 void loop() {
-  SerialCommand(pwm);  
+  static uint32_t phase = 0;
+  pwm.set_phase(phase);
+  phase = phase + 10;
+  delay(10);
 }
+  
