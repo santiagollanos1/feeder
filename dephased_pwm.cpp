@@ -66,6 +66,61 @@ void DephasedPWM::init() {
   while (TCC1->SYNCBUSY.bit.ENABLE);
 }
 
+
+
+
+void DephasedPWM::init_phaseloop(uint32_t timestep){
+  PM->APBCMASK.reg |= PM_APBCMASK_TC5;
+
+    // Conectar GCLK0 (48 MHz) al TC5
+  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_CLKEN |
+                        GCLK_CLKCTRL_GEN_GCLK1 |
+                        GCLK_CLKCTRL_ID_TC4_TC5;
+  while (GCLK->STATUS.bit.SYNCBUSY);
+
+  TC5->COUNT16.CTRLA.bit.SWRST = 1;
+  while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
+  while (TC5->COUNT16.CTRLA.bit.SWRST);
+
+  //TC5->COUNT16.CTRLA.reg = TC_CTRLA_MODE_COUNT16;  // Modo 16 bits
+  TC5->COUNT16.CTRLA.reg |= TC_CTRLA_PRESCALER_DIV256;  // prescaler 1024
+
+    // Cálculo para interrupciones exactas
+  uint32_t compare = (48000000UL / 1024UL) * timestep / 1000UL;
+
+
+  TC5->COUNT16.CC[1].reg = compare;
+  while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
+
+    // Interrupción en canal 0
+  TC5->COUNT16.INTENSET.bit.MC0 = 1;
+
+    // habilitar NVIC
+  NVIC_EnableIRQ(TC5_IRQn);
+
+    // arrancar el timer
+  TC5->COUNT16.CTRLA.reg |= TC_CTRLA_ENABLE;
+  while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
+}
+
+
+
+void DephasedPWM::set_phase(uint32_t phase_shift) {
+  // Leer y sincronizar el contador de TCC0
+
+
+  TCC0->CTRLBSET.reg = TCC_CTRLBSET_CMD_READSYNC;
+  while (TCC0->SYNCBUSY.bit.COUNT);
+
+  // Aplicar el desfase en TCC1
+  uint32_t period = TCC0->PER.reg;
+  TCC1->COUNT.reg = (TCC0->COUNT.reg + period * phase_shift / 360 ) % period;
+
+  //Serial.println(TCC1->COUNT.reg);
+}
+
+
+
 void DephasedPWM::set_phase(uint32_t phase_shift) {
   // Leer y sincronizar el contador de TCC0
   TCC0->CTRLBSET.reg = TCC_CTRLBSET_CMD_READSYNC;
@@ -77,6 +132,7 @@ void DephasedPWM::set_phase(uint32_t phase_shift) {
 
   Serial.println(TCC1->COUNT.reg);
 }
+
 
 
 
