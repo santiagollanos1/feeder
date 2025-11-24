@@ -8,9 +8,8 @@ class DephasedPWM {
     DephasedPWM();                    
     void init();                      
     void set_phase(uint32_t shift);    
-
   private:
-    uint32_t period = 3500;          // periodo (top del timer)
+    //uint32_t period = 20000;          // periodo (top del timer)
 
 };
 
