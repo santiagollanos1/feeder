@@ -6,8 +6,8 @@ DephasedPWM::DephasedPWM() {}
 
 void DephasedPWM::init() {
 
-  // Paso 1: Habilitar reloj del bus para TCC0 y TCC1
-  PM->APBCMASK.reg |= PM_APBCMASK_TCC0 | PM_APBCMASK_TCC1;
+  // Paso 1: Habilitar reloj del bus para TCC0 , TCC1 y TC5
+  PM->APBCMASK.reg |= PM_APBCMASK_TCC0 | PM_APBCMASK_TCC1 | PM_APBCMASK_TC5;
 
   // Paso 2: Configurar reloj GCLK4 (48 MHz DFLL)
   REG_GCLK_GENDIV = GCLK_GENDIV_DIV(1) | GCLK_GENDIV_ID(4);
@@ -24,6 +24,36 @@ void DephasedPWM::init() {
                      GCLK_CLKCTRL_GEN_GCLK4 |
                      GCLK_CLKCTRL_ID_TCC0_TCC1;
   while (GCLK->STATUS.bit.SYNCBUSY);
+
+  REG_GCLK_CLKCTRL = GCLK_CLKCTRL_CLKEN |
+                     GCLK_CLKCTRL_GEN_GCLK4 |
+                     GCLK_CLKCTRL_ID_TC4_TC5;
+  while (GCLK->STATUS.bit.SYNCBUSY);
+
+
+  // --- TC5 
+  {
+    TC5->COUNT16.CTRLA.bit.SWRST = 1;
+    while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
+    while (TC5->COUNT16.CTRLA.bit.SWRST);
+
+    REG_TC5_CTRLA = TC_CTRLA_MODE_COUNT16 |
+                    TC_CTRLA_PRESCALER_DIV1024 |
+                    TC_CTRLA_WAVEGEN_MFRQ;
+
+    while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
+ 
+    TC5->COUNT16.CC[0].reg = 2343;   // 50MS POR DEFECTO
+    while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
+
+    TC5->COUNT16.INTENSET.bit.MC0 = 1;
+    NVIC_EnableIRQ(TC5_IRQn);
+
+    TC5->COUNT16.CTRLA.reg |= TC_CTRLA_ENABLE;
+    while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
+  }
+  // --------------------------------------------------------
+
 
   // Paso 4: Configurar prescalers
   REG_TCC0_CTRLA |= TCC_CTRLA_PRESCALER_DIV1;
@@ -44,20 +74,17 @@ void DephasedPWM::init() {
   while (TCC1->SYNCBUSY.bit.PER);
 
   // Paso 7: Ciclo de trabajo 50%
-  REG_TCC0_CC3 = period / 2; // TCC0/WO[2] → D10 (PA18)
+  REG_TCC0_CC3 = period / 2;
   while (TCC0->SYNCBUSY.bit.CC3);
-  REG_TCC1_CC1 = period / 2; // TCC1/WO[1] → D9 (PA07)
+  REG_TCC1_CC1 = period / 2;
   while (TCC1->SYNCBUSY.bit.CC1);
 
   // Paso 8: Configurar multiplexor de pines
-  // PA19 → D10 → TCC0/WO[2] (función F)
   PORT->Group[0].PINCFG[19].bit.PMUXEN = 1;
   PORT->Group[0].PMUX[19 >> 1].reg = PORT_PMUX_PMUXO_F;
 
-  // PA09 → D12 → TCC1/WO[1] (función E)
   PORT->Group[0].PINCFG[9].bit.PMUXEN = 1;
   PORT->Group[0].PMUX[9 >> 1].reg = PORT_PMUX_PMUXO_F;
-
 
   // Paso 10: Habilitar los TCC
   REG_TCC0_CTRLA |= TCC_CTRLA_ENABLE;
@@ -66,73 +93,16 @@ void DephasedPWM::init() {
   while (TCC1->SYNCBUSY.bit.ENABLE);
 }
 
+void DephasedPWM::set_phase(uint32_t phase_shift)
+{
+    TCC0->CTRLBSET.reg = TCC_CTRLBSET_CMD_READSYNC;
+    while (TCC0->SYNCBUSY.bit.COUNT);
 
+    uint32_t period = TCC0->PER.reg;
+    uint32_t offset = (period * phase_shift) / 360;
 
-
-void DephasedPWM::init_phaseloop(uint32_t timestep){
-  PM->APBCMASK.reg |= PM_APBCMASK_TC5;
-
-    // Conectar GCLK0 (48 MHz) al TC5
-  GCLK->CLKCTRL.reg = GCLK_CLKCTRL_CLKEN |
-                        GCLK_CLKCTRL_GEN_GCLK1 |
-                        GCLK_CLKCTRL_ID_TC4_TC5;
-  while (GCLK->STATUS.bit.SYNCBUSY);
-
-  TC5->COUNT16.CTRLA.bit.SWRST = 1;
-  while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
-  while (TC5->COUNT16.CTRLA.bit.SWRST);
-
-  //TC5->COUNT16.CTRLA.reg = TC_CTRLA_MODE_COUNT16;  // Modo 16 bits
-  TC5->COUNT16.CTRLA.reg |= TC_CTRLA_PRESCALER_DIV256;  // prescaler 1024
-
-    // Cálculo para interrupciones exactas
-  uint32_t compare = (48000000UL / 1024UL) * timestep / 1000UL;
-
-
-  TC5->COUNT16.CC[1].reg = compare;
-  while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
-
-    // Interrupción en canal 0
-  TC5->COUNT16.INTENSET.bit.MC0 = 1;
-
-    // habilitar NVIC
-  NVIC_EnableIRQ(TC5_IRQn);
-
-    // arrancar el timer
-  TC5->COUNT16.CTRLA.reg |= TC_CTRLA_ENABLE;
-  while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
+    TCC1->COUNT.reg = (TCC0->COUNT.reg + offset) % period;
 }
-
-
-
-void DephasedPWM::set_phase(uint32_t phase_shift) {
-  // Leer y sincronizar el contador de TCC0
-
-
-  TCC0->CTRLBSET.reg = TCC_CTRLBSET_CMD_READSYNC;
-  while (TCC0->SYNCBUSY.bit.COUNT);
-
-  // Aplicar el desfase en TCC1
-  uint32_t period = TCC0->PER.reg;
-  TCC1->COUNT.reg = (TCC0->COUNT.reg + period * phase_shift / 360 ) % period;
-
-  //Serial.println(TCC1->COUNT.reg);
-}
-
-
-
-void DephasedPWM::set_phase(uint32_t phase_shift) {
-  // Leer y sincronizar el contador de TCC0
-  TCC0->CTRLBSET.reg = TCC_CTRLBSET_CMD_READSYNC;
-  while (TCC0->SYNCBUSY.bit.COUNT);
-
-  // Aplicar el desfase en TCC1
-  uint32_t period = TCC0->PER.reg;
-  TCC1->COUNT.reg = (TCC0->COUNT.reg + phase_shift) % period;
-
-  Serial.println(TCC1->COUNT.reg);
-}
-
 
 
 
