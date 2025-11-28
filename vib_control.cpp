@@ -23,7 +23,8 @@ void VibrationControl() {
                 currentDuration = interval;
             }
             
-            digitalWrite(1, relayState ? HIGH : LOW); 
+            digitalWrite(2, relayState ? LOW : HIGH); 
         }
     }
+
 }
