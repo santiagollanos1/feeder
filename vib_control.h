@@ -2,12 +2,13 @@
 #define VIB_CONTROL_H
 
 #include <Arduino.h>
+#include "settings.h"
 
 class VibrationControl {
   private:
     int pin;
-    uint32_t vibration_time;
-    unsigned long interval;
+    uint32_t vibration_time = DEFAULT_VIBTIME;
+    unsigned long interval = DEFAULT_SEEDINT;
 
     bool vibration_enabled;
     unsigned long previousMillis;

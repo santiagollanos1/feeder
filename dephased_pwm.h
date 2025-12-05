@@ -2,6 +2,7 @@
 #define DEPHASED_PWM_H
 
 #include <Arduino.h>
+#include "settings.h"
 
 class DephasedPWM {
   public:
@@ -13,8 +14,8 @@ class DephasedPWM {
     void set_timestep(uint32_t timestep);
     void set_delta(uint32_t delta);
   private:
-    uint32_t current_phase_angle = 0; // Estado del ángulo
-    uint32_t current_delta = 30;
+    uint32_t current_phase_angle = DEFAULT_PHASE; // Estado del ángulo
+    uint32_t current_delta = DEFAULT_DELTA;
 
 };
 

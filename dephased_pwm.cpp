@@ -115,7 +115,6 @@ void DephasedPWM::set_frequency(uint32_t frequency) {
 void DephasedPWM::phase_loop(uint32_t delta) { 
     TC5->COUNT16.INTFLAG.reg = TC_INTFLAG_MC0; 
     
-    // Llamada corregida:
     this->set_phase(current_phase_angle); 
     
     current_phase_angle = (current_phase_angle + current_delta) % 360; // 
