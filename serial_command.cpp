@@ -1,64 +1,166 @@
+
+/**
+ * SerialCommand - A Wiring/Arduino library to tokenize and parse commands
+ * received over a serial port.
+ * 
+ * Copyright (C) 2012 Stefan Rado
+ * Copyright (C) 2011 Steven Cogswell <steven.cogswell@gmail.com>
+ *                    http://husks.wordpress.com
+ * 
+ * Version 20120522
+ * 
+ * This library is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ * 
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Lesser General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this library.  If not, see <http://www.gnu.org/licenses/>.
+ */
 #include "serial_command.h"
 
-extern volatile int phase_shift;
-extern volatile uint32_t vibration_time; 
-extern volatile long interval; 
-extern volatile bool vibration_enabled;
+/**
+ * Constructor makes sure some things are set.
+ */
+SerialCommand::SerialCommand()
+  : commandList(NULL),
+    commandCount(0),
+    defaultHandler(NULL),
+    term('\n'),           // default terminator for commands, newline character
+    last(NULL)
+{
+  strcpy(delim, " "); // strtok_r needs a null-terminated string
+  clearBuffer();
+}
 
-void SerialCommand(DephasedPWM &pwm) {
-  if (Serial.available()) {
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim(); 
+/**
+ * Adds a "command" and a handler function to the list of available commands.
+ * This is used for matching a found token in the buffer, and gives the pointer
+ * to the handler function to deal with it.
+ */
+void SerialCommand::addCommand(const char *command, void (*function)()) {
+  #ifdef SERIALCOMMAND_DEBUG
+    Serial.print("Adding command (");
+    Serial.print(commandCount);
+    Serial.print("): ");
+    Serial.println(command);
+  #endif
 
-    if (cmd.startsWith("SET_PHASE")) {
-      int val = cmd.substring(10).toInt();
-      pwm.set_phase(val);
-      Serial.print("Fase manual set a: "); Serial.println(val);
-    }
+  commandList = (SerialCommandCallback *) realloc(commandList, (commandCount + 1) * sizeof(SerialCommandCallback));
+  strncpy(commandList[commandCount].command, command, SERIALCOMMAND_MAXCOMMANDLENGTH);
+  commandList[commandCount].function = function;
+  commandCount++;
+}
 
-    else if (cmd.startsWith("DELTA")) {
-      int val = cmd.substring(6).toInt();
-      phase_shift = val; 
-      Serial.print("PHASE SHIFT "); Serial.println(phase_shift);
-    }
+/**
+ * This sets up a handler to be called in the event that the receveived command string
+ * isn't in the list of commands.
+ */
+void SerialCommand::setDefaultHandler(void (*function)(const char *)) {
+  defaultHandler = function;
+}
 
-    else if (cmd.startsWith("VIBTIME")) {
-      int val = cmd.substring(8).toInt();
-      vibration_time = val;
-      Serial.print("VIBRATION TIME "); Serial.println(vibration_time);
-    }
-    
-    else if (cmd.startsWith("SEEDINT")) {
-      int val = cmd.substring(8).toInt();
-      
-      if (val >= 0) {
-          interval = val; 
-          Serial.print("SEED INTERVAL "); Serial.println(interval);
-      } else {
-          Serial.println("INTERVAL MUST BE POSITIVE");
+
+void SerialCommand::println(const char *line){
+  Serial.println(line);
+}
+
+void SerialCommand::print(const char *line){
+  Serial.print(line);
+}
+
+int SerialCommand::available(){
+  return Serial.available();
+}
+
+
+/**
+ * This checks the Serial stream for characters, and assembles them into a buffer.
+ * When the terminator character (default '\n') is seen, it starts parsing the
+ * buffer for a prefix command, and calls handlers setup by addCommand() member
+ */
+void SerialCommand::read() {
+  char inChar = Serial.read();   // Read single available character, there may be more waiting
+  #ifdef SERIALCOMMAND_DEBUG
+    Serial.print(inChar);   // Echo back to serial stream
+  #endif
+
+  if (inChar == term) {     // Check for the terminator (default '\r') meaning end of command
+    #ifdef SERIALCOMMAND_DEBUG
+      Serial.print("Received: ");
+      Serial.println(buffer);
+    #endif
+
+    char *command = strtok_r(buffer, delim, &last);   // Search for command at start of buffer
+    if (command != NULL) {
+      boolean matched = false;
+      for (int i = 0; i < commandCount; i++) {
+        #ifdef SERIALCOMMAND_DEBUG
+          Serial.print("Comparing [");
+          Serial.print(command);
+          Serial.print("] to [");
+          Serial.print(commandList[i].command);
+          Serial.println("]");
+        #endif
+
+        // Compare the found command against the list of known commands for a match
+        if (strncmp(command, commandList[i].command, SERIALCOMMAND_MAXCOMMANDLENGTH) == 0) {
+          #ifdef SERIALCOMMAND_DEBUG
+            Serial.print("Matched Command: ");
+            Serial.println(command);
+          #endif
+
+          // Execute the stored handler function for the command
+          (*commandList[i].function)();
+          matched = true;
+          break;
+        }
+      }
+      if (!matched && (defaultHandler != NULL)) {
+        (*defaultHandler)(command);
       }
     }
-    
-    else if (cmd.startsWith("RUN")) {
-      vibration_enabled = !vibration_enabled;
-      Serial.print("VIBRATION "); 
-      Serial.println(vibration_enabled ? "ON" : "OFF");
-    }
-
-    else if (cmd.startsWith("TIMESTEP")) {
-      int time = cmd.substring(9).toInt();
-      uint32_t toggle_value;
-
-      toggle_value = ((uint32_t)time * 46875UL) / (1000UL);
-
-      if (toggle_value > 0 && toggle_value <= 65535) {
-        TC5->COUNT16.CC[0].reg = (uint16_t)toggle_value;
-        while (TC5->COUNT16.STATUS.bit.SYNCBUSY); 
-        
-        Serial.print("TIME STEP "); Serial.println(time);
-      } else {
-        Serial.println("Error: periodo fuera de rangode 16bit");
-      }
+    clearBuffer();
+  }
+  else if (isprint(inChar)) {     // Only printable characters into the buffer
+    if (bufPos < SERIALCOMMAND_BUFFER) {
+      buffer[bufPos++] = inChar;  // Put character into buffer
+      buffer[bufPos] = '\0';      // Null terminate
+    } else {
+      #ifdef SERIALCOMMAND_DEBUG
+        Serial.println("Line buffer is full - increase SERIALCOMMAND_BUFFER");
+      #endif
     }
   }
 }
+
+/*
+ * Clear the input buffer.
+ */
+void SerialCommand::clearBuffer() {
+  buffer[0] = '\0';
+  bufPos = 0;
+}
+
+/**
+ * Retrieve the next token ("word" or "argument") from the command buffer.
+ * Returns NULL if no more tokens exist.
+ */
+char *SerialCommand::next() {
+  return strtok_r(NULL, delim, &last);
+}
+
+void SerialCommand::setup(){
+}
+
+
+void SerialCommand::loop(){
+  while (Serial.available() > 0) {
+    read();
+  }
+ }

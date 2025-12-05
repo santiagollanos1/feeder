@@ -3,10 +3,25 @@
 
 #include <Arduino.h>
 
-extern volatile uint32_t vibration_time;
-extern volatile long interval;
-extern volatile bool vibration_enabled;
+class VibrationControl {
+  private:
+    int pin;
+    uint32_t vibration_time;
+    unsigned long interval;
 
-void VibrationControl();
+    bool vibration_enabled;
+    unsigned long previousMillis;
+    bool relayState;
+    unsigned long currentDuration;
+
+  public:
+    VibrationControl(int pinNumber);
+    void init();
+    void run();
+    void stop();
+    void vibrator();
+    void set_vibtime(uint32_t vibtime);
+    void set_seedint(uint32_t seedint);
+};
 
 #endif

@@ -105,4 +105,31 @@ void DephasedPWM::set_phase(uint32_t phase_shift)
 }
 
 
+void DephasedPWM::set_frequency(uint32_t frequency) {
+  REG_TCC0_PER = 48000000/frequency;
+  while (TCC0->SYNCBUSY.bit.PER);
+  REG_TCC1_PER = 48000000/frequency;
+  while (TCC1->SYNCBUSY.bit.PER);
+}
 
+void DephasedPWM::phase_loop(uint32_t delta) { 
+    TC5->COUNT16.INTFLAG.reg = TC_INTFLAG_MC0; 
+    
+    // Llamada corregida:
+    this->set_phase(current_phase_angle); 
+    
+    current_phase_angle = (current_phase_angle + current_delta) % 360; // 
+}
+
+void DephasedPWM::set_delta(uint32_t delta) {
+    current_delta = delta;
+}
+
+void DephasedPWM::set_timestep(uint32_t timestep) {
+  
+    uint32_t toggle_value = ((uint32_t)timestep * 46875UL) / (1000UL);
+    if (toggle_value > 0 && toggle_value <= 65535) {
+      TC5->COUNT16.CC[0].reg = (uint16_t)toggle_value;
+      while (TC5->COUNT16.STATUS.bit.SYNCBUSY);
+    }
+}
